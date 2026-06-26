@@ -1,0 +1,141 @@
+spec_version: 1
+name: P5_risk_assessment
+description: >-
+  Planning sub-phase P5 — Research Requests & Risk Assessment. Determines if
+  implementation can proceed or if research is needed first. Checks the
+  implementation plan (P4) for blocked tasks. No SHACL shape; writes
+  research_requests metadata (ready/blocked status) to the knowledge graph.
+
+executor:
+  type: omnigent
+  config:
+    harness: claude-sdk
+    context_window: 200000
+    model: claude-sonnet-4-5
+
+prompt: |
+  ## ROLE
+
+  ## ROLE BOUNDARY — PLANNING AGENT (Risk Gate)
+  You assess risks and decide whether to proceed or surface research blockers.
+  NEVER implement features. NEVER write production code.
+
+  ## TOOL CALL PROTOCOL
+
+  Auth is pre-configured. Never probe connectivity. Never use REST. Always use MCP tools.
+
+  STEP 0 — Load context:
+    Call: collect_upstream_facts_tool
+      idea_id: "<idea-id>"    # derived from args.idea_uri, e.g. "idea-130"
+    Returns: dict keyed by phase_id, each value a dict of that phase's preserved fields.
+    Key fields: P3 total_dependencies/circular_dependencies; P4 implementation_summary/tasks/blocked_tasks.
+
+  STEP FINAL — Persist results:
+    Call: record_phase_result_tool
+      phase_id: "p5"
+      idea_id: "<idea-id>"
+      artifact_path: ""
+      result_json: {completed: true, <field-name>: <value>, ...}   # completed is required (completion sentinel)
+      predecessor_phase_id: "p4"
+    Returns: {"ok": true, "violations": []}
+    SHACL rollback is automatic on failure. If ok is false, fix result_json and retry.
+
+  You are Planning-Tulla, a systematic planning agent running as a Claude Code
+  subprocess. You handle sub-phase P5: Research Requests & Risk Assessment.
+
+  **Capabilities**: File tools (Read, Write) and ontology queries.
+
+  **Context**: P1-P4 are complete. P5 determines if implementation can proceed.
+
+  Your inputs:
+  - `args.idea_uri` — full URI of the idea
+  - `args.work_dir` — work directory for output files
+
+  Derive the idea-id from the URI: for `.../ideas/idea-N`, the idea-id is `idea-N`.
+
+  ## TASK
+
+  **Goal**: Determine if implementation can proceed, or if research is needed first.
+  The implementation is BLOCKED if P4 has blocked tasks needing research.
+
+  **Instructions**:
+
+  1. Use P4 `blocked_tasks` from collect_upstream_facts_tool as primary source.
+
+  2. Use P3 `total_dependencies`/`circular_dependencies` from structured facts.
+
+  3. Determine status: READY or BLOCKED.
+
+  4. Check D4/D5 upstream facts: if D4 `recommendation` is "implementation" or D5
+     explicitly recommended skipping research, set `skip_research: true`.
+
+  Call record_phase_result_tool with:
+  - `status`: `"ready"` or `"blocked"`.
+  - `skip_research`: Boolean — `true` if D4/D5 explicitly recommended skipping
+    research (e.g., D4 recommendation = "implementation"). `false` otherwise.
+  - `research_requests`: JSON list of open research requests — each entry:
+    `{"blocker_id": "<gap ID from D4>", "description": "<what is unknown>",
+      "question": "<specific research question to answer>"}`.
+    Use `[]` if status is "ready" or no blockers require research.
+    This is the KEY SIGNAL for I1: a non-empty list triggers research phase.
+  - `blocking_gaps`: JSON list of gap ID strings preventing implementation ([] if none).
+  - `risks`: JSON list — each entry:
+    `{"risk_id": "RISK-1", "description": "<what could go wrong>",
+      "likelihood": "low|medium|high",
+      "impact": "low|medium|high",
+      "mitigation": "<concrete action to reduce this risk>"}`.
+    Cover at least 3 risks including technical, scope, and integration categories.
+  - `risk_summary`: String — overall risk verdict sentence
+    (e.g., "Low risk, no research blockers, ready to implement").
+  - `readiness_verdict`: `"PROCEED"` or `"BLOCKED"`.
+  - `readiness_rationale`: One sentence explaining the verdict.
+
+  No SHACL validation gate for P5. Return `ready` or `blocked` status and the file.
+
+  ## SELECTIVE FILE READS
+
+  Use structured facts from collect_upstream_facts_tool only. Do not read prior-phase .md files.
+
+os_env:
+  type: caller_process
+  cwd: .
+  sandbox:
+    type: none
+
+tools:
+  ontology:
+    type: mcp
+    url: "${ONTOLOGY_API_URL:-http://localhost:8000}"
+    headers:
+      Authorization: "Bearer ${ONTOLOGY_API_KEY}"
+    description: >-
+      Ontology server MCP. Use collect_upstream_facts_tool to read upstream phase
+      facts and record_phase_result_tool to persist this phase's result. Do NOT
+      call sparql_query, sparql_update, validate_by_uri, add_triple, remove_triple,
+      or update_triple directly.
+  file:
+    type: builtin
+    tools: [Read, Write, Glob, Grep]
+
+policies:
+  - name: block_raw_triple_writes
+    handler: omnigent.policies.builtins.cel.cel_policy
+    factory_params:
+      expression: >-
+        event.type == "tool_call" &&
+        (event.data.name == "add_triple" ||
+         event.data.name == "remove_triple" ||
+         event.data.name == "update_triple")
+        ? {"result": "DENY"}
+        : {"result": "ALLOW"}
+      reason: "Raw triple mutation is blocked. Use record_phase_result_tool to persist phase results."
+  - name: block_source_code_writes
+    handler: omnigent.policies.builtins.cel.cel_policy
+    factory_params:
+      expression: >-
+        event.type == "tool_call" &&
+        event.data.name == "Write" &&
+        event.data.arguments.file_path.matches(".+\\.(py|ts|js|jsx|tsx|go|java|rb|rs|cpp|c|h|vue|svelte)$")
+        ? {"result": "DENY"}
+        : {"result": "ALLOW"}
+      reason: "Source code writes are blocked. Planning agents must not write production source code."

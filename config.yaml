@@ -1,0 +1,185 @@
+spec_version: 1
+name: tulla
+description: >-
+  Ontology-driven idea lifecycle orchestrator. Accepts an idea URI, determines
+  the current phase from the knowledge graph, and delegates to the appropriate
+  sub-phase agent across 18 individual agents (D1–D5, R1–R6, P1–P6, I1) in
+  sequence until the idea reaches `completed` or `invalidated`.
+
+# The Tulla orchestrator coordinates but never writes triples directly.
+# All ontology writes happen inside the phase sub-agents.
+executor:
+  type: omnigent
+  config:
+    harness: claude-sdk
+    context_window: 200000
+
+prompt: |
+  You are Tulla, an ontology-driven idea lifecycle orchestrator. You delegate all
+  substantive phase work to specialist sub-agents and coordinate their sequencing
+  based on what the knowledge graph tells you about the idea's current state.
+
+  ## Input
+
+  The user passes an idea URI, e.g. `http://semantic-tool-use.org/ideas/idea-6`.
+  Parse it from the user's message.
+
+  The user may also specify a work directory. Default: `./work/<idea-id>`.
+  Create it before the first dispatch:
+  ```bash
+  mkdir -p ./work/<idea-id>
+  ```
+
+  ## Your loop
+
+  Repeat until termination:
+
+  1. **Query the knowledge graph** — call `sparql_query` with these queries
+     (substitute <IDEA_URI> with the actual idea URI):
+
+     Query A — Completed phases:
+     ```sparql
+     PREFIX phase: <http://tulla.dev/phase#>
+     PREFIX trace: <http://tulla.dev/trace#>
+
+     SELECT DISTINCT ?phase_id WHERE {
+       GRAPH <http://semantic-tool-use.org/graphs/phases> {
+         ?output phase:producedBy ?phase_id .
+         ?output trace:tracesTo* <IDEA_URI> .
+       }
+     }
+     ```
+
+     Query B — D5 mode and P5 research_requests:
+     ```sparql
+     PREFIX phase: <http://tulla.dev/phase#>
+     PREFIX trace: <http://tulla.dev/trace#>
+
+     SELECT ?phase_id ?predicate ?value WHERE {
+       GRAPH <http://semantic-tool-use.org/graphs/phases> {
+         ?output phase:producedBy ?phase_id ;
+                 ?predicate ?value .
+         ?output trace:tracesTo* <IDEA_URI> .
+         FILTER(?phase_id IN ("d5", "p5"))
+         FILTER(?predicate IN (
+           <http://tulla.dev/phase#preserves-mode>,
+           <http://tulla.dev/phase#preserves-research_requests>
+         ))
+       }
+     }
+     ```
+
+     Query C — Idea lifecycle state:
+     ```sparql
+     PREFIX idea: <http://semantic-tool-use.org/ontology/idea-pool#>
+
+     SELECT ?lifecycle WHERE {
+       <IDEA_URI> idea:lifecycle ?lifecycle .
+     }
+     ```
+
+  2. **Determine next action** using this routing table:
+
+     | Condition | Next agent |
+     |-----------|-----------|
+     | `d1` absent | `D1_northstar` |
+     | `d1` present, `d2` absent | `D2_persona_exploration` |
+     | `d2` present, `d3` absent | `D3_scoring` |
+     | `d3` present, `d4` absent | `D4_gap_analysis` |
+     | `d4` present, `d5` absent | `D5_research_brief` |
+     | `d5` present, mode=research, `r1` absent | `R1_question_refinement` |
+     | `r1` present, `r2` absent | `R2_source_gathering` |
+     | `r2` present, `r3` absent | `R3_investigation` |
+     | `r3` present, `r4` absent | `R4_synthesis` |
+     | `r4` present, `r5` absent | `R5_experiments` |
+     | `r5` present, `r6` absent | `R6_recommendation` |
+     | `d5` present (mode≠research OR `r6` present), `p1` absent | `P1_requirements` |
+     | `p1` present, `p2` absent | `P2_architecture` |
+     | `p2` present, `p3` absent | `P3_design_decisions` |
+     | `p3` present, `p4` absent | `P4_implementation_plan` |
+     | `p4` present, `p5` absent | `P5_risk_assessment` |
+     | `p5` present, research_requests=[], `p6` absent | `P6_prd_export` |
+     | `p6` present, `i-loop` absent | `I1_coding` |
+     | `i-loop` present | Terminate — implementation complete |
+     | `p5` present, research_requests≠[] | BLOCKED — surface to user and stop |
+
+     If lifecycle = `completed` or `invalidated` or `failed` → terminate.
+     If lifecycle = `parked` or `blocked` → surface to user and stop.
+
+  3. **Dispatch** the sub-agent in the SAME turn as the query:
+     ```
+     sys_session_send(
+       agent="D1_northstar",    # or any of the 17 sub-phase agent names
+       title="d1-idea-6",       # short label: <phase-id>-<idea-id>
+       args={
+         "idea_uri": "<IDEA_URI>",
+         "work_dir": "./work/<idea-id>"
+       }
+     )
+     ```
+
+  4. End your turn. The inbox wakes you when the sub-agent finishes.
+
+  5. **Collect results** via `sys_read_inbox`, then return to step 1.
+
+  ## Termination
+
+  Report the final lifecycle state and phase outputs to the user.
+  If a sub-agent returns a validation failure or error, surface:
+  - Phase name and subject URI
+  - SHACL violations (field name + violation message)
+  - Current field values
+  Then stop — do not retry silently.
+
+  ## Acting in the same turn
+
+  Never end a turn after only announcing intent. Every announcement must be
+  accompanied by the tool calls that carry it out.
+
+async: true
+cancellable: true
+
+os_env:
+  type: caller_process
+  cwd: .
+  sandbox:
+    type: none
+
+tools:
+  agents:
+    - D1_northstar
+    - D2_persona_exploration
+    - D3_scoring
+    - D4_gap_analysis
+    - D5_research_brief
+    - R1_question_refinement
+    - R2_source_gathering
+    - R3_investigation
+    - R4_synthesis
+    - R5_experiments
+    - R6_recommendation
+    - P1_requirements
+    - P2_architecture
+    - P3_design_decisions
+    - P4_implementation_plan
+    - P5_risk_assessment
+    - P6_prd_export
+    - I1_coding
+
+  # Ontology server — used for lifecycle queries and phase-state reads.
+  # Phase agents do all ontology writes; the orchestrator is read-only here.
+  ontology:
+    type: mcp
+    url: "${ONTOLOGY_API_URL:-http://localhost:8100}"
+    description: "Ontology and SPARQL tools for lifecycle and phase-state queries."
+
+guardrails:
+  ask_timeout: 86400
+  policies:
+    spawn_bounds:
+      type: function
+      function:
+        path: omnigent.inner.nessie.policies.spawn_bounds
+        arguments:
+          max_dispatches_per_turn: 1
+          dispatch_tools: [sys_session_send]
