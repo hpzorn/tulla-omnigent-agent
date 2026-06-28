@@ -160,6 +160,44 @@ policies:
       result: {"result": "DENY"}
 ```
 
+## Tool scoping (context-cost control)
+
+The ontology MCP server advertises **63 tools**. Mounting all of them in every
+agent injects ~10-20k tokens of unused tool schemas into each agent's context on
+every turn — multiplied across the 19-agent fleet — and degrades tool-selection
+accuracy.
+
+Each agent therefore declares an MCP **allow-list** via `tools:` on its
+`ontology:` block. Omnigent filters tool schemas at discovery time
+(`runner/mcp_manager.py` → `_mcp_tool_schema`: `if allowed is not None and
+bare_name not in allowed: return None`), so non-listed schemas are never sent to
+the model — this is a real token saving, not a runtime guard.
+
+```yaml
+tools:
+  ontology:
+    type: mcp
+    tools: [collect_upstream_facts_tool, record_phase_result_tool]  # <- allow-list
+    url: "${ONTOLOGY_API_URL:-http://localhost:8000}"
+```
+
+Result: **63 → avg 2.7 tools per agent (~96% of schemas dropped).**
+
+| Agent | Allowed ontology tools |
+|-------|------------------------|
+| orchestrator (`config.yaml`) | `sparql_query` |
+| D1 | `collect_upstream_facts_tool`, `record_phase_result_tool`, `get_idea`, `query_ideas` |
+| D2, D3, P1, P2, P5, R1-R6 | `collect_upstream_facts_tool`, `record_phase_result_tool` |
+| D4, P3 | + `query_ontology` |
+| D5 | + `get_idea`, `append_to_idea` |
+| P4 | + `store_fact`, `store_facts_bulk` |
+| P6 | + `recall_facts`, `store_facts_bulk` |
+| I1_coding | + `recall_facts`, `store_fact`, `forget_fact`, `set_lifecycle` |
+
+The allow-list is orthogonal to the raw-write DENY policy below: the allow-list
+controls *what schemas the model sees*; the policy is defence-in-depth for
+*what may execute*.
+
 ## Work directory layout
 
 Each pipeline run uses a consistent work directory `./work/<idea-id>/`:

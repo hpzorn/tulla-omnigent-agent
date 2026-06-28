@@ -141,6 +141,7 @@ os_env:
 tools:
   ontology:
     type: mcp
+    tools: [collect_upstream_facts_tool, record_phase_result_tool, store_fact, store_facts_bulk]
     url: "${ONTOLOGY_API_URL:-http://localhost:8000}"
     headers:
       Authorization: "Bearer ${ONTOLOGY_API_KEY}"

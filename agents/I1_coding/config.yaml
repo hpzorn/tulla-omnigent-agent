@@ -275,6 +275,7 @@ tools:
 
   ontology:
     type: mcp
+    tools: [collect_upstream_facts_tool, record_phase_result_tool, recall_facts, store_fact, forget_fact, set_lifecycle]
     url: "${ONTOLOGY_API_URL:-http://localhost:8000}"
     headers:
       Authorization: "Bearer ${ONTOLOGY_API_KEY}"

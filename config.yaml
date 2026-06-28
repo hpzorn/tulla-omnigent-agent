@@ -170,6 +170,10 @@ tools:
   # Phase agents do all ontology writes; the orchestrator is read-only here.
   ontology:
     type: mcp
+    # Allow-list: orchestrator is read-only, drives the hardcoded routing
+    # table via SPARQL only. (Dynamic-routing variants additionally need
+    # list_pipeline_tool, next_phase_tool, collect_upstream_facts_tool.)
+    tools: [sparql_query]
     url: "${ONTOLOGY_API_URL:-http://localhost:8100}"
     description: "Ontology and SPARQL tools for lifecycle and phase-state queries."
 
