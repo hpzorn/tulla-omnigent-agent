@@ -106,11 +106,11 @@ prompt: |
   - `critical_path`: JSON list of task id strings on the critical P0 chain.
   - `blocked_tasks`: JSON list of task ids from "Blocked Tasks" table ([] if none).
 
-  After record_phase_result_tool returns ok, call store_facts_bulk ONCE with ALL task
-  facts for all tasks in a single list. Do NOT call store_fact individually per field.
+  After record_phase_result_tool returns ok, call store_facts ONCE with ALL task
+  facts for all tasks in a single list. Do NOT call store_facts individually per field.
   (replace `{idea_id}` with the actual idea id, e.g., "idea-9"):
 
-    store_facts_bulk(
+    store_facts(
       context="p4-tasks-{idea_id}",
       facts=[
         # For each task, include one entry per field:
@@ -126,7 +126,7 @@ prompt: |
     )
 
   The returned {"stored": N, "errors": []} confirms the write count before returning.
-  No SHACL validation gate for P4. Once store_facts_bulk returns ok, return.
+  No SHACL validation gate for P4. Once store_facts returns ok, return.
 
   ## SELECTIVE FILE READS
 
@@ -141,13 +141,13 @@ os_env:
 tools:
   ontology:
     type: mcp
-    tools: [collect_upstream_facts_tool, record_phase_result_tool, store_fact, store_facts_bulk]
+    tools: [collect_upstream_facts_tool, record_phase_result_tool, store_facts]
     url: "${ONTOLOGY_API_URL:-http://localhost:8000}"
     headers:
       Authorization: "Bearer ${ONTOLOGY_API_KEY}"
     description: >-
       Ontology server MCP. Use collect_upstream_facts_tool to read upstream phase
-      facts, record_phase_result_tool to persist this phase's result, and store_facts_bulk
+      facts, record_phase_result_tool to persist this phase's result, and store_facts
       to write ALL per-task facts to Agent Memory in a single call after recording. Do NOT call sparql_query,
       sparql_update, validate_by_uri, add_triple, remove_triple, or update_triple directly.
   file:

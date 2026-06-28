@@ -87,7 +87,7 @@ prompt: |
   > "BLOCKED — research is required before implementation. Check P5 research_requests in collect_upstream_facts_tool results."
 
   Verify P6 ran — query ALL requirements (not just Pending) to confirm Agent Memory
-  was populated. P6 writes requirements via store_fact to context "prd-idea-{idea_id}".
+  was populated. P6 writes requirements via store_facts to context "prd-idea-{idea_id}".
 
   Call: recall_facts(predicate="rdf:type", context="prd-idea-{idea_id}")
   Filter results for object="prd:Requirement" to get all requirement subjects.
@@ -133,8 +133,8 @@ prompt: |
   ### Step 3 — Mark requirement InProgress
 
   ```
-  forget_fact(subject="{req_uri}", predicate="prd:status", context="prd-idea-{idea_id}")
-  store_fact(subject="{req_uri}", predicate="prd:status", object="prd:InProgress", context="prd-idea-{idea_id}")
+  forget_facts(subject="{req_uri}", predicate="prd:status", context="prd-idea-{idea_id}")
+  store_facts(subject="{req_uri}", predicate="prd:status", object="prd:InProgress", context="prd-idea-{idea_id}")
   ```
 
   ### Step 4 — Dispatch fresh claude_code sub-agent
@@ -182,19 +182,19 @@ prompt: |
 
   **If DONE — mark Complete:**
   ```
-  forget_fact(subject="{req_uri}", predicate="prd:status", context="prd-idea-{idea_id}")
-  store_fact(subject="{req_uri}", predicate="prd:status", object="prd:Complete", context="prd-idea-{idea_id}")
+  forget_facts(subject="{req_uri}", predicate="prd:status", context="prd-idea-{idea_id}")
+  store_facts(subject="{req_uri}", predicate="prd:status", object="prd:Complete", context="prd-idea-{idea_id}")
   ```
 
   **If BLOCKED — mark Blocked and store reason:**
   ```
-  forget_fact(subject="{req_uri}", predicate="prd:status", context="prd-idea-{idea_id}")
-  store_fact(subject="{req_uri}", predicate="prd:status", object="prd:Blocked", context="prd-idea-{idea_id}")
+  forget_facts(subject="{req_uri}", predicate="prd:status", context="prd-idea-{idea_id}")
+  store_facts(subject="{req_uri}", predicate="prd:status", object="prd:Blocked", context="prd-idea-{idea_id}")
   ```
 
   Then store the block reason:
   ```
-  store_fact(
+  store_facts(
     subject="impl:<idea-id>-<taskId>-block",
     predicate="impl:blockReason",
     object="<reason from BLOCKED: reply>",
@@ -204,7 +204,7 @@ prompt: |
 
   Extract any lesson from the result and store it:
   ```
-  store_fact(
+  store_facts(
     subject="lesson:<idea-id>",
     predicate="lesson:text",
     object="<lesson text if any>",
@@ -275,14 +275,14 @@ tools:
 
   ontology:
     type: mcp
-    tools: [collect_upstream_facts_tool, record_phase_result_tool, recall_facts, store_fact, forget_fact, set_lifecycle]
+    tools: [collect_upstream_facts_tool, record_phase_result_tool, recall_facts, store_facts, forget_facts, set_lifecycle]
     url: "${ONTOLOGY_API_URL:-http://localhost:8000}"
     headers:
       Authorization: "Bearer ${ONTOLOGY_API_KEY}"
     description: >-
       Ontology server MCP. Use collect_upstream_facts_tool to read upstream phase
       facts, record_phase_result_tool to persist this phase's result, sparql_query
-      to find requirements, sparql_update to update requirement status, store_fact
+      to find requirements, sparql_update to update requirement status, store_facts
       to record block reasons and lessons, recall_facts to load prior lessons,
       and set_lifecycle to advance the idea after loop completion.
       Do NOT call add_triple, remove_triple, or update_triple directly.

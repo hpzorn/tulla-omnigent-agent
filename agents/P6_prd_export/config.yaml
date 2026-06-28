@@ -3,7 +3,7 @@ name: P6_prd_export
 description: >-
   Planning sub-phase P6 — PRD Export to Agent Memory. Reads the P4 implementation
   plan and writes every requirement as prd:Requirement facts into Agent Memory
-  (context prd-idea-{idea_id}) using store_facts_bulk. Writes p6-prd-export.ttl and
+  (context prd-idea-{idea_id}) using store_facts. Writes p6-prd-export.ttl and
   p6-prd-summary.md to the work directory. This is the bridge between planning
   and implementation: the dashboard and implementation loop read from Agent Memory.
 
@@ -57,7 +57,7 @@ prompt: |
   You are Planning-Tulla, a systematic planning agent running as a Claude Code
   subprocess. You handle sub-phase P6: PRD Export to RDF.
 
-  **Capabilities**: File tools (Read, Write), Agent Memory tools (store_facts_bulk,
+  **Capabilities**: File tools (Read, Write), Agent Memory tools (store_facts,
   recall_facts), ontology query (sparql_query), and phase-pipeline tools
   (collect_upstream_facts_tool, record_phase_result_tool).
 
@@ -89,7 +89,7 @@ prompt: |
   ### Step 2 — Write requirements to Agent Memory
 
   Build the complete list of fact dicts for ALL requirements and ALL fields, then
-  call `store_facts_bulk` ONCE with the entire payload.
+  call `store_facts` ONCE with the entire payload.
 
   Use `context: "prd-idea-<N>"` as the top-level context (applies to every fact
   that does not set its own context key).
@@ -116,7 +116,7 @@ prompt: |
 
   After building the full list, make a single call:
   ```
-  store_facts_bulk(
+  store_facts(
     facts: [ ...all dicts above... ],
     context: "prd-idea-{N}"
   )
@@ -128,7 +128,7 @@ prompt: |
   **Notes**:
   - Keep descriptions concise — truncate at 500 chars.
   - Do NOT use sparql_update for PRD data — it writes to a named graph that the
-    dashboard cannot read. Agent Memory (store_facts_bulk) is the only correct path.
+    dashboard cannot read. Agent Memory (store_facts) is the only correct path.
 
   ### Step 3 — Write Turtle export file
 
@@ -189,7 +189,7 @@ prompt: |
 
   - **Turtle file**: {args.work_dir}/p6-prd-export.ttl
   - **Agent Memory context**: prd-idea-{N}
-  - **Backend**: ontology-server Agent Memory (store_facts_bulk)
+  - **Backend**: ontology-server Agent Memory (store_facts)
 
   ## Next Step
 
@@ -202,7 +202,7 @@ prompt: |
   - `requirements_exported`: total count as string
   - `requirement_count`: same value as requirements_exported — canonical name I1 reads
   - `prd_context`: "prd-idea-{N}" (N is the numeric part of the idea URI; this is the
-    Agent Memory context where requirements are stored via store_facts_bulk)
+    Agent Memory context where requirements are stored via store_facts)
   - `prd_file`: absolute or relative path to the p6-prd-export.ttl file
   - `p0_count`, `p1_count`, `p2_count`: counts per priority as strings
 
@@ -220,17 +220,15 @@ os_env:
 tools:
   ontology:
     type: mcp
-    tools: [collect_upstream_facts_tool, record_phase_result_tool, recall_facts, store_facts_bulk]
+    tools: [collect_upstream_facts_tool, record_phase_result_tool, recall_facts, store_facts]
     url: "${ONTOLOGY_API_URL:-http://localhost:8000}"
     headers:
       Authorization: "Bearer ${ONTOLOGY_API_KEY}"
     description: >-
       Ontology server MCP. Use collect_upstream_facts_tool to read upstream phase
       facts, record_phase_result_tool to persist this phase's result,
-      store_facts_bulk to write all prd:Requirement facts to Agent Memory in one
+      store_facts to write all prd:Requirement facts to Agent Memory in one
       call, and sparql_query to verify.
-      Do NOT use sparql_update for PRD data (named graphs are not read by the
-      dashboard). Do NOT call add_triple, remove_triple, or update_triple directly.
   file:
     type: builtin
     tools: [Read, Write, Glob, Grep]
@@ -246,4 +244,4 @@ policies:
          event.data.name == "update_triple")
         ? {"result": "DENY"}
         : {"result": "ALLOW"}
-      reason: "Raw triple mutation is blocked. Use store_facts_bulk for PRD inserts (Agent Memory) and record_phase_result_tool for phase results."
+      reason: "Raw triple mutation is blocked. Use store_facts for PRD inserts (Agent Memory) and record_phase_result_tool for phase results."

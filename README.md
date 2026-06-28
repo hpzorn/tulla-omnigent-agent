@@ -190,9 +190,9 @@ Result: **63 → avg 2.7 tools per agent (~96% of schemas dropped).**
 | D2, D3, P1, P2, P5, R1-R6 | `collect_upstream_facts_tool`, `record_phase_result_tool` |
 | D4, P3 | + `query_ontology` |
 | D5 | + `get_idea`, `append_to_idea` |
-| P4 | + `store_fact`, `store_facts_bulk` |
-| P6 | + `recall_facts`, `store_facts_bulk` |
-| I1_coding | + `recall_facts`, `store_fact`, `forget_fact`, `set_lifecycle` |
+| P4 | + `store_facts` |
+| P6 | + `recall_facts`, `store_facts` |
+| I1_coding | + `recall_facts`, `store_facts`, `forget_facts`, `set_lifecycle` |
 
 The allow-list is orthogonal to the raw-write DENY policy below: the allow-list
 controls *what schemas the model sees*; the policy is defence-in-depth for
