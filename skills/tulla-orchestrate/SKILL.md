@@ -141,7 +141,7 @@ After P5 completes, check the `research_requests` field in collect_upstream_fact
 After P6 completes successfully (record_phase_result_tool ok=true), dispatch I1_coding.
 I1_coding drives the implementation loop internally. You only need to dispatch it once.
 
-P6 uses `store_facts_bulk` to write all prd:Requirement facts in a single MCP call
+P6 uses `store_facts` to write all prd:Requirement facts in a single MCP call
 (one call per idea, not one call per field). The returned `{"stored": N, "errors": []}`
 confirms the export count before P6 proceeds to record_phase_result_tool.
 
@@ -175,9 +175,9 @@ I1_coding handles the internal loop:
 1. Reads all `prd:Requirement` facts from Agent Memory: `recall_facts(predicate="rdf:type", context="prd-idea-{idea_id}")`, filters results for `object="prd:Requirement"`, then reads each requirement's properties with `recall_facts(subject=req_uri, context="prd-idea-{idea_id}")`
 2. Sorts by dependency graph using `prd:dependsOn` values (topological order)
 3. For each unblocked pending requirement:
-   - Marks `prd:InProgress` via `forget_fact(subject=req_uri, predicate="prd:status", context="prd-idea-{idea_id}")` + `store_fact(subject=req_uri, predicate="prd:status", object="prd:InProgress", context="prd-idea-{idea_id}")`
+   - Marks `prd:InProgress` by writing an updated `prd:status` fact via `store_facts([{subject: req_uri, predicate: "prd:status", object: "prd:InProgress", context: "prd-idea-{idea_id}"}])` (use `forget_facts` to clear a stale status first if needed)
    - Dispatches fresh `claude_code` sub-agent with requirement spec + architecture context
-   - Marks `prd:Complete` or `prd:Blocked` based on result using the same forget_fact/store_fact pattern
+   - Marks `prd:Complete` or `prd:Blocked` based on result using the same `store_facts` pattern
 4. Loops until no `prd:Pending` requirements remain unblocked
 5. Records summary via `record_phase_result_tool(phase_id="i1")`
 6. Calls `set_lifecycle(lifecycle="completed")` on success
@@ -215,8 +215,7 @@ then dispatch only that agent.
 
 If ANY of the following orchestration-level tool calls returns an error or raises:
 `collect_upstream_facts_tool`, `list_pipeline_tool`, `next_phase_tool`,
-`render_tools_tool`, `render_gates_tool`, `render_input_contract_tool`,
-`render_output_contract_tool`, `render_methodology_tool`, `record_phase_result_tool`
+`render_phase_spec`, `record_phase_result_tool`
 
 → **Stop immediately. Do NOT dispatch the next phase.**
 
@@ -232,7 +231,7 @@ results that appear valid but are built on missing context.
 
 ### Empty results from required renderers (hard stop)
 
-After calling `render_tools_tool` or `render_gates_tool` for a phase, verify the
+After calling `render_phase_spec` for a phase, verify the
 returned markdown is non-empty. An empty tool list or empty gate list for any
 phase other than a manually skipped one means the ontology server could not load
 the phase definition.
