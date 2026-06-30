@@ -87,7 +87,7 @@ uvicorn src.ontology_server.api.app:app --port 8000
 ### 2. Create an idea in the knowledge graph
 
 Ideas must already exist in the knowledge graph before Tulla can process them.
-Use the ontology server's `create_idea` MCP tool or the web dashboard.
+Use the ontology server's `create_idea` MCP tool.
 The idea must have at least a title and a `seed` or `backlog` lifecycle state.
 
 ## Launching the orchestrator
@@ -107,11 +107,6 @@ Or run a single sub-phase:
 omnigent run . --prompt "Run P3 for idea-6"
 ```
 
-> **Self-contained:** this agent requires no modifications to the `omnigent`
-> codebase. It only needs `omnigent` installed -- it resolves built-in policy
-> handlers (e.g. `omnigent.policies.builtins.cel.cel_policy`,
-> `omnigent.inner.nessie.policies.spawn_bounds`) from the installed package at
-> runtime.
 
 The orchestrator queries the phases graph, determines where the idea is in the
 pipeline, and dispatches the appropriate sub-agent. If the pipeline was partially
@@ -140,25 +135,7 @@ idea-6 ← d1 ← d2 ← d3 ← d4 ← d5 ← [r1 ← r2 ← r3 ← r4 ← r5 �
 The orchestrator traverses this chain via `trace:tracesTo*` to query all
 upstream facts in a single SPARQL query.
 
-## Security: raw write blocking
 
-All agents except I1_coding are prohibited from calling `add_triple`, `remove_triple`,
-or `update_triple` directly. A CEL policy blocks these tools with DENY.
-Agents must use `sparql_update` (SPARQL INSERT DATA / DELETE DATA) to write phase facts.
-
-```yaml
-policies:
-  - name: block_raw_triple_writes
-    handler: omnigent.policies.builtins.cel.cel_policy
-    factory_params:
-      expression: >-
-        event.type == "tool_call" &&
-        (event.data.name == "add_triple" ||
-         event.data.name == "remove_triple" ||
-         event.data.name == "update_triple")
-      reason: "Raw triple mutation is blocked. Use sparql_update with a DELETE DATA / INSERT DATA or DELETE+INSERT pattern."
-      result: {"result": "DENY"}
-```
 
 ## Tool scoping (context-cost control)
 
@@ -181,7 +158,6 @@ tools:
     url: "${ONTOLOGY_API_URL:-http://localhost:8000}"
 ```
 
-Result: **63 → avg 2.7 tools per agent (~96% of schemas dropped).**
 
 | Agent | Allowed ontology tools |
 |-------|------------------------|
