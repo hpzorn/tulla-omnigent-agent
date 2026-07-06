@@ -3,15 +3,15 @@ name: P5_risk_assessment
 description: >-
   Planning sub-phase P5 — Research Requests & Risk Assessment. Determines if
   implementation can proceed or if research is needed first. Checks the
-  implementation plan (P4) for blocked tasks. No SHACL shape; writes
-  research_requests metadata (ready/blocked status) to the knowledge graph.
+  implementation plan (P4) for blocked tasks. Writes SHACL-gated P5OutputShape
+  facts (research_requests, readiness_verdict) to the knowledge graph.
 
 executor:
   type: omnigent
   config:
     harness: claude-sdk
     context_window: 200000
-    model: claude-sonnet-4-5
+    model: claude-sonnet-5
 
 prompt: |
   ## ROLE
@@ -38,7 +38,12 @@ prompt: |
       result_json: {completed: true, <field-name>: <value>, ...}   # completed is required (completion sentinel)
       predecessor_phase_id: "p4"
     Returns: {"ok": true, "violations": []}
-    SHACL rollback is automatic on failure. If ok is false, fix result_json and retry.
+    SHACL rollback is automatic on failure: on violations NOTHING is persisted.
+    HARD GATE — do NOT report completion until ok is true. If ok is false: fix
+    result_json using the reported violations and retry (max 3 attempts). After
+    3 failed attempts STOP: return FAILED and quote every violation verbatim
+    (field, message, current value). Never skip persistence, never downgrade a
+    validation failure to a warning, never claim success without ok: true.
 
   You are Planning-Tulla, a systematic planning agent running as a Claude Code
   subprocess. You handle sub-phase P5: Research Requests & Risk Assessment.
@@ -90,7 +95,8 @@ prompt: |
   - `readiness_verdict`: `"PROCEED"` or `"BLOCKED"`.
   - `readiness_rationale`: One sentence explaining the verdict.
 
-  No SHACL validation gate for P5. Return `ready` or `blocked` status and the file.
+  This is the P5 SHACL gate — do NOT return until record_phase_result_tool
+  returns ok: true. Then report `ready` or `blocked` status and the file.
 
   ## SELECTIVE FILE READS
 

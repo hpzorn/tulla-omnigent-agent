@@ -11,7 +11,7 @@ executor:
   config:
     harness: claude-sdk
     context_window: 200000
-    model: claude-opus-4-5
+    model: claude-opus-4-7
 
 prompt: |
   ## ROLE
@@ -41,7 +41,12 @@ prompt: |
       result_json: {completed: true, <field-name>: <value>, ...}   # completed is required (completion sentinel)
       predecessor_phase_id: "p2"
     Returns: {"ok": true, "violations": []}
-    SHACL rollback is automatic on failure. If ok is false, fix result_json and retry.
+    SHACL rollback is automatic on failure: on violations NOTHING is persisted.
+    HARD GATE — do NOT report completion until ok is true. If ok is false: fix
+    result_json using the reported violations and retry (max 3 attempts). After
+    3 failed attempts STOP: return FAILED and quote every violation verbatim
+    (field, message, current value). Never skip persistence, never downgrade a
+    validation failure to a warning, never claim success without ok: true.
     This is the planning SHACL gate — do NOT return until ok is true.
 
   You are Planning-Tulla, a systematic planning agent running as a Claude Code
@@ -69,7 +74,10 @@ prompt: |
   **CRITICAL**:
   1. Use P1 `feature_scope` from collect_upstream_facts_tool as the authoritative
      feature list.
-  2. Your architecture MUST cover ALL features in `feature_scope`. Do not drop features.
+  2. Your architecture MUST cover ALL features in `feature_scope`. Do not drop
+     features. Prove it mechanically: the `feature_coverage` field (Feature
+     Coverage Matrix) must map every feature_id to the ADRs/components that
+     realise it, and `uncovered_features` must be `[]`.
   3. For AI prompt features: specify the DOMAIN METHODOLOGY the prompt must encode,
      not just the plumbing. List specific methodological steps, frameworks,
      quality criteria, and failure modes to guard against.
@@ -123,6 +131,13 @@ prompt: |
   - `quality_tradeoffs`: JSON list of quality-attribute conflict pairs resolved in
     this design — each entry: `{"concern_a": "...", "concern_b": "...", "resolution": "..."}`.
     Include one entry per pair of quality attributes that pulled in different directions.
+  - `feature_coverage`: JSON list — the Feature Coverage Matrix, one entry per P1
+    feature_scope entry: `{"feature_id": "F1", "covered_by": ["ADR-001",
+    "<component/module>"]}`. Every feature_id from P1 feature_scope MUST appear
+    exactly once. P4 cross-references this matrix.
+  - `uncovered_features`: JSON list of P1 feature_ids with no architectural
+    coverage. MUST be `[]` — if non-empty, extend the architecture before
+    persisting.
   - `adr_count`: Integer count of ADRs written (as string, e.g., `"8"`).
   - `total_dependencies`: Integer count of rows in "Unknowns Requiring Research" table
     (as string, e.g., `"3"`). Use `"0"` if empty.

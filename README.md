@@ -1,13 +1,25 @@
-# Tulla — Ontology-Driven Idea Lifecycle Agent
+# tulla-agent — Ontology-Driven Coding-Agent Orchestrator
 
-Tulla is a multi-agent pipeline that transforms a raw idea into a completed
-implementation through up to 17 individual sub-phase agents: **D1–D5 (discovery)
-→ R1–R6 (research, optional) → P1–P5 (planning) → I1 (implementation)**.
+**tulla-agent** is an ontology-driven coding-agent orchestrator: a fleet of
+phase agents takes software from idea to committed code, coordinating through
+a shared RDF knowledge graph — architecture decisions as first-class
+resources, SHACL-validated phase handoffs, drift-resistant structured
+context, and end-to-end traceability from commit to quality attribute.
+Multiple agent instances, one semantic brain.
 
-Each sub-phase agent reads upstream facts from an RDF knowledge graph, does its
-analysis, writes SHACL-validated phase facts back to the graph, and signals
-completion. The orchestrator sequences agents by querying the phases graph after
-each completion.
+> This fleet is the **canonical Tulla artifact**. The Python engine in
+> [`tulla`](../tulla) is the reference implementation; the shared semantic
+> substrate (ontology server, pipeline ontologies, gate shapes) lives in
+> [`semantic-tool-use`](../semantic-tool-use).
+
+The pipeline runs up to 18 sub-phase agents: **D1–D5 (discovery) → R1–R6
+(research, optional) → P1–P6 (planning) → I1 (implementation loop)**.
+
+Each sub-phase agent reads upstream facts from the RDF knowledge graph, does
+its analysis, writes SHACL-validated phase facts back to the graph (rollback
+on violation — see gates below), and signals completion. The orchestrator
+sequences agents by querying the phases graph after each completion and
+mechanically blocks on failed coverage gates.
 
 ## Architecture
 
@@ -15,29 +27,29 @@ each completion.
 tulla (orchestrator)
 │
 ├── Discovery
-│   ├── D1_northstar          claude-opus-4-5   Context & Ecosystem Inventory
-│   ├── D2_persona_exploration claude-sonnet-4-5 Persona Discovery (JTBD, pain points)
-│   ├── D3_scoring            claude-sonnet-4-5  Value Mapping (effort vs impact)
-│   ├── D4_gap_analysis       claude-opus-4-5   Gap Analysis (iSAQB quality attributes)
-│   └── D5_research_brief     claude-sonnet-4-5  Integration / Research Brief [gate]
+│   ├── D1_northstar          claude-opus-4-7   Context & Ecosystem Inventory
+│   ├── D2_persona_exploration claude-sonnet-5 Persona Discovery (JTBD, pain points)
+│   ├── D3_scoring            claude-sonnet-5  Value Mapping (effort vs impact)
+│   ├── D4_gap_analysis       claude-opus-4-7   Gap Analysis (iSAQB quality attributes)
+│   └── D5_research_brief     claude-sonnet-5  Integration / Research Brief [gate]
 │
 ├── Research (optional — only if D5 mode=research)
-│   ├── R1_question_refinement claude-sonnet-4-5 Question Refinement (novelty check)
-│   ├── R2_source_gathering   claude-sonnet-4-5  Source Identification
-│   ├── R3_investigation      claude-sonnet-4-5  Source Investigation
-│   ├── R4_synthesis          claude-opus-4-5   Literature Review & Synthesis
-│   ├── R5_experiments        claude-sonnet-4-5  Prototype Experiments (Bash enabled)
-│   └── R6_recommendation     claude-sonnet-4-5  Research Recommendation [gate]
+│   ├── R1_question_refinement claude-sonnet-5 Question Refinement (novelty check)
+│   ├── R2_source_gathering   claude-sonnet-5  Source Identification
+│   ├── R3_investigation      claude-sonnet-5  Source Investigation
+│   ├── R4_synthesis          claude-opus-4-7   Literature Review & Synthesis
+│   ├── R5_experiments        claude-sonnet-5  Prototype Experiments (Bash enabled)
+│   └── R6_recommendation     claude-sonnet-5  Research Recommendation [gate]
 │
 ├── Planning
-│   ├── P1_requirements       claude-sonnet-4-5  Discovery Context Integration
-│   ├── P2_architecture       claude-sonnet-4-5  Codebase Analysis
-│   ├── P3_design_decisions   claude-opus-4-5   Architecture & ADRs [gate]
-│   ├── P4_implementation_plan claude-opus-4-5   Implementation Plan
-│   └── P5_risk_assessment    claude-sonnet-4-5  Research Requests & Risk Assessment
+│   ├── P1_requirements       claude-sonnet-5  Discovery Context Integration
+│   ├── P2_architecture       claude-sonnet-5  Codebase Analysis
+│   ├── P3_design_decisions   claude-opus-4-7   Architecture & ADRs [gate]
+│   ├── P4_implementation_plan claude-opus-4-7   Implementation Plan
+│   └── P5_risk_assessment    claude-sonnet-5  Research Requests & Risk Assessment
 │
 └── Implementation
-    └── I1_coding             claude-opus-4-5   Orchestrates claude_code sub-agent [gate]
+    └── I1_coding             claude-opus-4-7   Orchestrates claude_code sub-agent [gate]
         └── claude_code       claude-native     Actual coding, tests, commit
 ```
 
@@ -45,21 +57,67 @@ tulla (orchestrator)
 
 | Agent(s) | Model | Rationale |
 |----------|-------|-----------|
-| D1, D4, R4, P3, P4, I1 | `claude-opus-4-5` | Deep analysis, architecture, complex synthesis |
-| D2, D3, D5, R1, R2, R3, R5, R6, P1, P2, P5 | `claude-sonnet-4-5` | Structured extraction, source work, planning |
+| D1, D4, R4, P3, P4, I1 | `claude-opus-4-7` | Deep analysis, architecture, complex synthesis |
+| D2, D3, D5, R1, R2, R3, R5, R6, P1, P2, P5 | `claude-sonnet-5` | Structured extraction, source work, planning |
 | claude_code | `claude-native` | Direct file editing with auto permission mode |
 
 ### SHACL gates
 
-Each gate agent does NOT return until `validate_by_uri` returns `{valid: true}`.
+**Every phase is gated.** Each agent persists via `record_phase_result_tool`,
+which SHACL-validates the result server-side and rolls back all triples on
+non-conformance. The agent contract is uniform: do NOT report completion until
+`ok: true`; fix per the reported violations and retry (max 3 attempts); after
+that, FAIL loudly quoting every violation verbatim. No agent may downgrade a
+validation failure to a warning.
 
-| Agent | Gate shape | Required fields |
+| Agent | Gate shape | Key required fields |
 |-------|-----------|----------------|
+| D1_northstar | D1OutputShape * | key_capabilities, idea_verbatim_features, ecosystem_context |
+| D2_persona_exploration | D2OutputShape * | personas, primary_persona, non_negotiable_needs |
+| D3_scoring | D3OutputShape * | total_value_score, quadrant, complexity_tier, verdict |
+| D4_gap_analysis | D4OutputShape * | gaps, quality_attribute_gaps, root_blocker |
 | D5_research_brief | D5OutputShape | mode, recommendation, northstar, mandatory_features, key_constraints |
 | R1_question_refinement | R1OutputShape | questions_refined, research_questions |
 | R6_recommendation | R6OutputShape | findings_count, recommendation, synthesised_answers, risks |
-| P3_design_decisions | P3OutputShape | total_dependencies, circular_dependencies |
+| P1_requirements | P1OutputShape * | feature_scope, mandatory_feature_coverage, uncovered_mandatory_features |
+| P2_architecture | P2OutputShape * | codebase_summary, relevant_modules |
+| P3_design_decisions | P3OutputShape | total_dependencies, circular_dependencies, feature_coverage, uncovered_features |
+| P4_implementation_plan | P4OutputShape * | tasks (with per-task features), feature_coverage, uncovered_features |
+| P5_risk_assessment | P5OutputShape * | research_requests, readiness_verdict |
+| P6_prd_export | P6OutputShape * | requirement_count, prd_context, coverage_gate, uncovered_features |
 | I1_coding | LWTraceOutputShape | change_type, affected_files, conformance_assertion, commit_ref, change_summary, timestamp |
+
+All shapes are defined in `semantic-tool-use`'s
+`tulla/ontologies/phase-content.trig` and auto-seeded into the phases graph at
+server startup. Shapes marked `*` were added together with this fleet contract.
+Server-side enforcement details: the P1/P3/P4 shapes carry
+`sh:hasValue "[]"` on their `uncovered_*` fields, so a phase that drops a
+feature is **rolled back**, not just flagged; a phase whose declared gate shape
+cannot be resolved (or whose server has no validator) FAILS instead of passing
+silently. P6's `coverage_gate` is deliberately recordable as `"fail"` so the
+orchestrator and I1 can see and block on it.
+
+### Feature-coverage gate (mechanical drift check)
+
+Prompt discipline alone does not prevent feature drop. The pipeline carries a
+machine-checkable coverage chain from discovery to code:
+
+```
+D5 mandatory_features            (the contract, idea's own words)
+  → P1 feature_scope             + mandatory_feature_coverage / uncovered_mandatory_features
+    → P3 feature_coverage        (feature_id → ADRs/components)
+      → P4 tasks[].features      + feature_coverage / uncovered_features
+        → P6 prd:coversFeature   per requirement + Step 2b recall_facts verification
+          → I1 pre-flight        aborts unless coverage_gate="pass"
+```
+
+Enforcement points:
+- **P1** blocks itself while `uncovered_mandatory_features ≠ []`.
+- **P6** re-reads what was actually stored (`recall_facts(predicate="prd:coversFeature")`)
+  and compares against P1 feature_scope — a fail is recorded to the graph, not hidden.
+- **The orchestrator** routing table blocks on `p1.uncovered_mandatory_features ≠ []`
+  and on `p6.coverage_gate = "fail"` — a literal value comparison, no judgement.
+- **I1** independently re-checks the P6 gate at pre-flight before dispatching any coder.
 
 ## Setup
 

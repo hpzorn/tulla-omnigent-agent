@@ -50,7 +50,7 @@ prompt: |
      }
      ```
 
-     Query B — D5 mode and P5 research_requests:
+     Query B — D5 mode, P5 research_requests, P1/P6 coverage gates:
      ```sparql
      PREFIX phase: <http://tulla.dev/phase#>
      PREFIX trace: <http://tulla.dev/trace#>
@@ -60,10 +60,13 @@ prompt: |
          ?output phase:producedBy ?phase_id ;
                  ?predicate ?value .
          ?output trace:tracesTo* <IDEA_URI> .
-         FILTER(?phase_id IN ("d5", "p5"))
+         FILTER(?phase_id IN ("d5", "p1", "p5", "p6"))
          FILTER(?predicate IN (
            <http://tulla.dev/phase#preserves-mode>,
-           <http://tulla.dev/phase#preserves-research_requests>
+           <http://tulla.dev/phase#preserves-research_requests>,
+           <http://tulla.dev/phase#preserves-uncovered_mandatory_features>,
+           <http://tulla.dev/phase#preserves-uncovered_features>,
+           <http://tulla.dev/phase#preserves-coverage_gate>
          ))
        }
      }
@@ -99,9 +102,14 @@ prompt: |
      | `p3` present, `p4` absent | `P4_implementation_plan` |
      | `p4` present, `p5` absent | `P5_risk_assessment` |
      | `p5` present, research_requests=[], `p6` absent | `P6_prd_export` |
-     | `p6` present, `i-loop` absent | `I1_coding` |
+     | `p6` present, coverage_gate="pass", uncovered_features=[], `i-loop` absent | `I1_coding` |
      | `i-loop` present | Terminate — implementation complete |
+     | `p1` present, uncovered_mandatory_features≠[] | BLOCKED — scope-coverage gate: P1 dropped D5 mandatory features; surface the list and stop |
      | `p5` present, research_requests≠[] | BLOCKED — surface to user and stop |
+     | `p6` present, coverage_gate="fail" OR uncovered_features≠[] | BLOCKED — feature-coverage gate: surface uncovered features, instruct re-run of P4/P6, stop |
+
+     The coverage rows are MECHANICAL gates: compare the literal field values —
+     do not judge whether the missing features "matter". Any non-empty list blocks.
 
      If lifecycle = `completed` or `invalidated` or `failed` → terminate.
      If lifecycle = `parked` or `blocked` → surface to user and stop.

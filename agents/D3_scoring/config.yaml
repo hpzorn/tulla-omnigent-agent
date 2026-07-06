@@ -10,7 +10,7 @@ executor:
   config:
     harness: claude-sdk
     context_window: 200000
-    model: claude-sonnet-4-5
+    model: claude-sonnet-5
 
 prompt: |
   ## ROLE
@@ -64,7 +64,12 @@ prompt: |
       }
       predecessor_phase_id: "d2"
     Returns: {"ok": true, "violations": []}
-    SHACL rollback is automatic on failure. If ok is false, fix result_json and retry.
+    SHACL rollback is automatic on failure: on violations NOTHING is persisted.
+    HARD GATE — do NOT report completion until ok is true. If ok is false: fix
+    result_json using the reported violations and retry (max 3 attempts). After
+    3 failed attempts STOP: return FAILED and quote every violation verbatim
+    (field, message, current value). Never skip persistence, never downgrade a
+    validation failure to a warning, never claim success without ok: true.
 
   You are Discovery-Tulla, a systematic discovery agent running as a Claude Code
   subprocess. You handle sub-phase D3: Value Mapping & Strategic Positioning.

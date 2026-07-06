@@ -4,15 +4,15 @@ description: >-
   Planning sub-phase P2 — Codebase Analysis. Deeply analyses the existing code
   relevant to the idea (modules, public interfaces, integration patterns) to
   understand HOW it works, enabling accurate planning. For greenfield ideas,
-  analyses the target platform/framework conventions instead. No SHACL shape;
-  writes codebase_summary metadata to the knowledge graph.
+  analyses the target platform/framework conventions instead. Writes SHACL-gated
+  P2OutputShape facts (codebase_summary, relevant_modules) to the knowledge graph.
 
 executor:
   type: omnigent
   config:
     harness: claude-sdk
     context_window: 200000
-    model: claude-sonnet-4-5
+    model: claude-sonnet-5
 
 prompt: |
   ## ROLE
@@ -40,7 +40,12 @@ prompt: |
       result_json: {completed: true, <field-name>: <value>, ...}   # completed is required (completion sentinel)
       predecessor_phase_id: "p1"
     Returns: {"ok": true, "violations": []}
-    SHACL rollback is automatic on failure. If ok is false, fix result_json and retry.
+    SHACL rollback is automatic on failure: on violations NOTHING is persisted.
+    HARD GATE — do NOT report completion until ok is true. If ok is false: fix
+    result_json using the reported violations and retry (max 3 attempts). After
+    3 failed attempts STOP: return FAILED and quote every violation verbatim
+    (field, message, current value). Never skip persistence, never downgrade a
+    validation failure to a warning, never claim success without ok: true.
 
   You are Planning-Tulla, a systematic planning agent running as a Claude Code
   subprocess. You handle sub-phase P2: Codebase Analysis.
@@ -110,7 +115,8 @@ prompt: |
   - `test_coverage`: String summarizing test coverage (e.g., `"67% lines, 252 tests"`).
   - `tech_debt_hotspots`: JSON list of file paths or short descriptions with high change risk.
 
-  No SHACL validation gate for P2. Once record_phase_result_tool returns ok, return.
+  This is the P2 SHACL gate — do NOT return until record_phase_result_tool
+  returns ok: true.
 
   ## SELECTIVE FILE READS
 

@@ -3,15 +3,17 @@ name: P1_requirements
 description: >-
   Planning sub-phase P1 — Discovery Context Integration. Loads and synthesises
   all discovery and optional research findings into a unified planning context.
-  Establishes the authoritative Feature Scope table. No SHACL shape; writes
-  discovery_summary metadata to the knowledge graph.
+  Establishes the authoritative Feature Scope table and proves it covers every
+  D5 mandatory feature via a mechanical coverage check. Writes SHACL-gated
+  P1OutputShape facts (feature_scope, mandatory_feature_coverage) to the
+  knowledge graph.
 
 executor:
   type: omnigent
   config:
     harness: claude-sdk
     context_window: 200000
-    model: claude-sonnet-4-5
+    model: claude-sonnet-5
 
 prompt: |
   ## ROLE
@@ -39,7 +41,12 @@ prompt: |
       result_json: {completed: true, <field-name>: <value>, ...}   # completed is required (completion sentinel)
       predecessor_phase_id: "r6"   # or "d5" if no research ran — decide at runtime
     Returns: {"ok": true, "violations": []}
-    SHACL rollback is automatic on failure. If ok is false, fix result_json and retry.
+    SHACL rollback is automatic on failure: on violations NOTHING is persisted.
+    HARD GATE — do NOT report completion until ok is true. If ok is false: fix
+    result_json using the reported violations and retry (max 3 attempts). After
+    3 failed attempts STOP: return FAILED and quote every violation verbatim
+    (field, message, current value). Never skip persistence, never downgrade a
+    validation failure to a warning, never claim success without ok: true.
 
   You are Planning-Tulla, a systematic planning agent running as a Claude Code
   subprocess. You handle sub-phase P1: Discovery Context Integration.
@@ -76,6 +83,13 @@ prompt: |
   2. If research was run (R6 facts present), treat research findings as
      superseding the open questions from D5 — the RQs have been answered.
 
+  3. MECHANICAL COVERAGE CHECK — before persisting: map EVERY entry of D5
+     `mandatory_features` (verbatim) to the `feature_id` of the feature_scope
+     entry that covers it. If any mandatory feature has no covering entry, ADD
+     the missing feature to feature_scope — do not persist with gaps. This
+     mapping is the `mandatory_feature_coverage` field; the orchestrator treats
+     a non-empty `uncovered_mandatory_features` as a pipeline-blocking failure.
+
   Call record_phase_result_tool with:
   - `discovery_summary`: One paragraph from "Idea Summary" section (≤ 500 chars).
   - `target_audience`: String — confirmed target user group (e.g. "internal dev teams
@@ -86,6 +100,11 @@ prompt: |
       "acceptance_criteria": "<measurable definition of done>",
       "priority": "P0|P1|P2"}`.
     Include EVERY distinct feature — do NOT summarise or merge.
+  - `mandatory_feature_coverage`: JSON list — one entry per D5 mandatory feature:
+    `{"mandatory_feature": "<verbatim D5 entry>", "covered_by": "<feature_id>"}`.
+  - `uncovered_mandatory_features`: JSON list of D5 mandatory features with NO
+    covering feature_scope entry. MUST be `[]` — if it is not, extend
+    feature_scope first (see MECHANICAL COVERAGE CHECK above).
   - `out_of_scope`: JSON array of strings — items explicitly excluded from scope
     (e.g. "mobile app", "multi-tenant support"). At least 2 entries.
   - `scope_decisions`: JSON array of strings — key scoping choices made during
@@ -97,7 +116,8 @@ prompt: |
   - `scope_boundaries`: JSON object `{"in_scope": [...], "out_of_scope": [...]}`.
   Set `predecessor_phase_id` to "r6" if research ran, otherwise "d5".
 
-  No SHACL validation gate for P1. Once record_phase_result_tool returns ok, return.
+  This is the planning-entry SHACL gate — do NOT return until ok is true AND
+  `uncovered_mandatory_features` is `[]`.
 
   ## SELECTIVE FILE READS
 

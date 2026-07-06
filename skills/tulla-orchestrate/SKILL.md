@@ -4,7 +4,7 @@ description: >-
   Run the full Tulla lifecycle pipeline for an idea URI across 20 individual
   sub-phase agents: D1-D5 (discovery), R1-R6 (research, optional), P1-P6
   (planning), I-loop (implementation orchestrator) → per-requirement coding
-  sub-agents. Uses list_pipeline_tool (per family: "design", "research",
+  sub-agents. Uses list_pipeline_tool (per family: "discovery", "research",
   "planning") and next_phase_tool to determine phase order and routing
   dynamically through P6; implementation loop is driven internally by I1_coding.
 ---
@@ -51,7 +51,7 @@ D1 → D2 → D3 → D4 → D5
    phases are already complete. The returned dict's keys are completed phase_ids.
 
 3. Get the canonical phase order by calling list_pipeline_tool once per family:
-   - `list_pipeline_tool(agent_family="design")`   → `["d1","d2","d3","d4","d5"]`
+   - `list_pipeline_tool(agent_family="discovery")`   → `["d1","d2","d3","d4","d5"]`
    - `list_pipeline_tool(agent_family="research")` → `["r1","r2","r3","r4","r5","r6"]`
    - `list_pipeline_tool(agent_family="planning")` → `["p1","p2","p3","p4","p5","p6"]`
    If any call returns `[]` or an error, **stop immediately** (see Error Handling).
@@ -60,7 +60,7 @@ D1 → D2 → D3 → D4 → D5
 4. Determine the next phase to run:
    - If no phases are complete, start with `d1`.
    - Otherwise, identify the last completed phase and derive its family from the phase_id prefix:
-     - starts with `"d"` → `agent_family="design"`
+     - starts with `"d"` → `agent_family="discovery"`
      - starts with `"r"` → `agent_family="research"`
      - starts with `"p"` → `agent_family="planning"`
    - Call: `next_phase_tool(agent_family=<family>, current_id="<last_phase>", verdict="<verdict_or_empty>")`
@@ -123,8 +123,8 @@ work outside its boundary.
 
 ## D5 mode routing
 
-After D5 completes, `next_phase_tool(agent_family="design", current_id="d5")` returns
-`"terminate"` (D5 is the last design phase). Apply the cross-family transition manually:
+After D5 completes, `next_phase_tool(agent_family="discovery", current_id="d5")` returns
+`"terminate"` (D5 is the last discovery phase). Apply the cross-family transition manually:
 check the `mode` field in collect_upstream_facts_tool's D5 entry and set `next_phase` directly:
 - `mode="research"` → next phase is `r1`
 - `mode="plan"` or `mode="implement"` → next phase is `p1` (skip R-phases)
@@ -136,14 +136,31 @@ After P5 completes, check the `research_requests` field in collect_upstream_fact
 - `research_requests == []` → proceed, dispatch P6_prd_export
 - `research_requests != []` → stop, surface blocked status to user. Do NOT dispatch P6.
 
-### P6 gate
+### P6 gate (feature coverage — mechanical)
 
-After P6 completes successfully (record_phase_result_tool ok=true), dispatch I1_coding.
+After P6 completes successfully (record_phase_result_tool ok=true), check the
+`coverage_gate` and `uncovered_features` fields in collect_upstream_facts_tool's
+P6 entry:
+- `coverage_gate == "pass"` and `uncovered_features == []` → dispatch I1_coding.
+- otherwise → stop, surface the uncovered features to the user, instruct a
+  re-run of P4/P6. Do NOT dispatch I1_coding.
+
+This is a mechanical comparison of literal field values — do not judge whether
+the missing features "matter". Any non-empty list blocks.
+
 I1_coding drives the implementation loop internally. You only need to dispatch it once.
 
 P6 uses `store_facts` to write all prd:Requirement facts in a single MCP call
-(one call per idea, not one call per field). The returned `{"stored": N, "errors": []}`
-confirms the export count before P6 proceeds to record_phase_result_tool.
+(one call per idea, not one call per field), each requirement carrying
+`prd:coversFeature` links to the P1 feature_ids it covers. The returned
+`{"stored": N, "errors": []}` confirms the export count before P6 proceeds to
+record_phase_result_tool.
+
+### P1 gate (scope coverage — mechanical)
+
+After P1 completes, check `uncovered_mandatory_features` in P1's entry: if
+non-empty, stop and surface it — P1 dropped D5 mandatory features and planning
+must not continue on a lossy scope.
 
 ## Dispatching a sub-phase agent (D1–P6)
 
@@ -195,7 +212,7 @@ Stop and report to the user when lifecycle reaches:
 - `invalidated` — idea was a dead end (D5 or R1 returned early-termination)
 - `failed` — a phase failed validation after retries
 - `parked` — D5 mode="park" or idea needs human decision
-- `blocked` — P5 research_requests not empty; needs human input
+- `blocked` — P5 research_requests not empty, or a coverage gate (P1/P6) failed; needs human input
 
 ## Resume behaviour
 

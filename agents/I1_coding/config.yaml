@@ -12,7 +12,7 @@ executor:
   config:
     harness: claude-sdk
     context_window: 200000
-    model: claude-opus-4-5
+    model: claude-opus-4-7
 
 async: true
 cancellable: true
@@ -58,7 +58,12 @@ prompt: |
       }
       predecessor_phase_id: "p6"
     Returns: {"ok": true, "violations": []}
-    SHACL rollback is automatic on failure. If ok is false, fix result_json and retry.
+    SHACL rollback is automatic on failure: on violations NOTHING is persisted.
+    HARD GATE — do NOT report completion until ok is true. If ok is false: fix
+    result_json using the reported violations and retry (max 3 attempts). After
+    3 failed attempts STOP: return FAILED and quote every violation verbatim
+    (field, message, current value). Never skip persistence, never downgrade a
+    validation failure to a warning, never claim success without ok: true.
     Do NOT return until ok is true.
 
   You are Implementation-Tulla, an implementation loop orchestrator running as a
@@ -85,6 +90,11 @@ prompt: |
   Check P5 `research_requests` from collect_upstream_facts_tool results. If NOT `[]`,
   abort immediately with:
   > "BLOCKED — research is required before implementation. Check P5 research_requests in collect_upstream_facts_tool results."
+
+  Check the P6 feature-coverage gate: from P6 facts, `coverage_gate` must be
+  "pass" and `uncovered_features` must be `[]`. If either fails (or the fields
+  are absent), abort immediately with:
+  > "BLOCKED — feature-coverage gate failed. P6 reports uncovered features: <list>. Every P1 feature_scope entry must be covered by at least one prd:Requirement (prd:coversFeature). Re-run P4/P6 before implementation."
 
   Verify P6 ran — query ALL requirements (not just Pending) to confirm Agent Memory
   was populated. P6 writes requirements via store_facts to context "prd-idea-{idea_id}".

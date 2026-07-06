@@ -3,15 +3,16 @@ name: P4_implementation_plan
 description: >-
   Planning sub-phase P4 — Implementation Plan. Creates a detailed, executable
   implementation plan with file-level and task-level specificity. Every feature
-  from P1's Feature Scope must have implementation tasks. No SHACL shape; writes
-  implementation_plan metadata to the knowledge graph.
+  from P1's Feature Scope must have implementation tasks, proven mechanically by
+  the feature_coverage field. Writes SHACL-gated P4OutputShape facts (tasks,
+  feature_coverage) to the knowledge graph.
 
 executor:
   type: omnigent
   config:
     harness: claude-sdk
     context_window: 200000
-    model: claude-opus-4-5
+    model: claude-opus-4-7
 
 prompt: |
   ## ROLE
@@ -40,7 +41,12 @@ prompt: |
       result_json: {completed: true, <field-name>: <value>, ...}   # completed is required (completion sentinel)
       predecessor_phase_id: "p3"
     Returns: {"ok": true, "violations": []}
-    SHACL rollback is automatic on failure. If ok is false, fix result_json and retry.
+    SHACL rollback is automatic on failure: on violations NOTHING is persisted.
+    HARD GATE — do NOT report completion until ok is true. If ok is false: fix
+    result_json using the reported violations and retry (max 3 attempts). After
+    3 failed attempts STOP: return FAILED and quote every violation verbatim
+    (field, message, current value). Never skip persistence, never downgrade a
+    validation failure to a warning, never claim success without ok: true.
 
   You are Planning-Tulla, a systematic planning agent running as a Claude Code
   subprocess. You handle sub-phase P4: Implementation Plan.
@@ -100,11 +106,17 @@ prompt: |
       "acceptance_criteria": "<full Verification field — how to test this task>",
       "effort": "S|M|L",
       "dependencies": ["T1.0"] or [],
+      "features": ["F1", ...] or [],   # P1 feature_ids this task advances; [] ONLY for pure infra/chore tasks
       "priority": "P0|P1|P2"}`.
     description MUST be the complete Details field, not truncated. acceptance_criteria
     MUST be the complete Verification field. Do NOT use empty strings for either.
   - `critical_path`: JSON list of task id strings on the critical P0 chain.
   - `blocked_tasks`: JSON list of task ids from "Blocked Tasks" table ([] if none).
+  - `feature_coverage`: JSON list — one entry per P1 feature_scope entry:
+    `{"feature_id": "F1", "task_ids": ["T1.1", "T2.3"]}`. Every feature_id MUST
+    have at least one task. Cross-check against P3 `feature_coverage`.
+  - `uncovered_features`: JSON list of P1 feature_ids with no tasks. MUST be `[]`
+    — if non-empty, add the missing tasks before persisting.
 
   After record_phase_result_tool returns ok, call store_facts ONCE with ALL task
   facts for all tasks in a single list. Do NOT call store_facts individually per field.
@@ -121,12 +133,16 @@ prompt: |
         {"subject": "task:{idea_id}-{task.id}", "predicate": "prd:verification", "object": "{task.acceptance_criteria}"},
         # For each dep in task.dependencies — add one entry per dependency:
         {"subject": "task:{idea_id}-{task.id}", "predicate": "prd:dependsOn",   "object": "task:{idea_id}-{dep}"},
+        # For each feature_id in task.features — add one entry per feature:
+        {"subject": "task:{idea_id}-{task.id}", "predicate": "prd:coversFeature", "object": "{feature_id}"},
         # ... repeat for every task ...
       ]
     )
 
   The returned {"stored": N, "errors": []} confirms the write count before returning.
-  No SHACL validation gate for P4. Once store_facts returns ok, return.
+  This is the P4 SHACL gate — do NOT return until record_phase_result_tool
+  returned ok: true, `uncovered_features` is `[]`, AND store_facts confirmed the
+  write count with no errors.
 
   ## SELECTIVE FILE READS
 
