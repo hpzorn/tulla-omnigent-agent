@@ -250,7 +250,7 @@ Result: **63 → avg 2.7 tools per agent (~96% of schemas dropped).**
 | D5 | + `get_idea`, `append_to_idea` |
 | P4 | + `store_facts` |
 | P6 | + `recall_facts`, `store_facts` |
-| I1_coding | + `recall_facts`, `store_facts`, `forget_facts`, `set_lifecycle` |
+| I1_coding | + `recall_facts`, `recall_lessons`, `store_facts`, `forget_facts`, `set_lifecycle` |
 
 The allow-list is orthogonal to the raw-write DENY policy below: the allow-list
 controls *what schemas the model sees*; the policy is defence-in-depth for
