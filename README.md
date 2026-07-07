@@ -119,6 +119,31 @@ Enforcement points:
   and on `p6.coverage_gate = "fail"` — a literal value comparison, no judgement.
 - **I1** independently re-checks the P6 gate at pre-flight before dispatching any coder.
 
+### Human-in-the-loop gate points (HITL)
+
+Phases whose definitions carry `phase:requiresApproval "true"` (ship defaults:
+**d5, p1, p6** — toggleable at `/dashboard/settings/phases`) record their
+validated output with `phase:approvalStatus "pending"`. A pending output does
+**not** count as complete: the orchestrator's Query A filters it out, and a
+Query D pre-check runs before the routing table:
+
+- **pending** → the orchestrator long-polls `await_approval_tool` (50 s per
+  call, max 100 calls) while a human reviews the output at
+  `/dashboard/reviews`. Approval resumes the pipeline hands-free; past the
+  poll bound it reports `WAITING_APPROVAL` and stops.
+- **approved with edits** — the reviewer can edit any `preserves-*` field in
+  the dashboard before approving; edits are re-validated against the phase's
+  SHACL gate (a violating edit changes nothing).
+- **rejected** → the orchestrator re-dispatches the same phase agent with the
+  reviewer's comment passed verbatim as `args.reviewer_feedback`; the agent's
+  re-run replaces the rejected output (idempotent cleanup) and pends again.
+
+Decisions are graph facts (`phase:approvalStatus`, `phase:reviewComment`,
+`phase:reviewedBy`, `phase:reviewedAt`, `phase:editedByReviewer`) — auditable
+like everything else. Approve/reject is deliberately **not** exposed over MCP,
+so no agent can approve its own output. Outputs recorded before HITL existed
+have no status triple and count as approved.
+
 ## Setup
 
 ### API key

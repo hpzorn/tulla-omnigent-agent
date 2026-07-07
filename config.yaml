@@ -37,7 +37,8 @@ prompt: |
   1. **Query the knowledge graph** — call `sparql_query` with these queries
      (substitute <IDEA_URI> with the actual idea URI):
 
-     Query A — Completed phases:
+     Query A — Completed phases (pending/rejected outputs do NOT count —
+     they are awaiting or failed human review):
      ```sparql
      PREFIX phase: <http://tulla.dev/phase#>
      PREFIX trace: <http://tulla.dev/trace#>
@@ -46,6 +47,10 @@ prompt: |
        GRAPH <http://semantic-tool-use.org/graphs/phases> {
          ?output phase:producedBy ?phase_id .
          ?output trace:tracesTo* <IDEA_URI> .
+         FILTER NOT EXISTS {
+           ?output phase:approvalStatus ?st .
+           FILTER(?st IN ("pending", "rejected"))
+         }
        }
      }
      ```
@@ -81,7 +86,42 @@ prompt: |
      }
      ```
 
-  2. **Determine next action** using this routing table:
+     Query D — Human review state (HITL gate points):
+     ```sparql
+     PREFIX phase: <http://tulla.dev/phase#>
+     PREFIX trace: <http://tulla.dev/trace#>
+
+     SELECT ?phase_id ?status ?comment WHERE {
+       GRAPH <http://semantic-tool-use.org/graphs/phases> {
+         ?output phase:producedBy ?phase_id ;
+                 phase:approvalStatus ?status .
+         ?output trace:tracesTo* <IDEA_URI> .
+         OPTIONAL { ?output phase:reviewComment ?comment }
+         FILTER(?status IN ("pending", "rejected"))
+       }
+     }
+     ```
+
+  2. **Human review gate** — evaluate Query D BEFORE the routing table.
+     These rules are MECHANICAL, like the coverage rows:
+
+     - Any phase `pending` → a human is reviewing it in the dashboard.
+       Call `await_approval_tool(idea_id="<idea-id>", phase_id="<phase>",
+       timeout_s=50)` in a loop (max 100 calls — ~85 minutes):
+       - returns `approved` → go back to step 1 (the phase now counts
+         as complete).
+       - returns `rejected` → apply the rejected rule below.
+       - returns `missing` → go back to step 1 (the output is being
+         re-recorded).
+       - still `pending` after the loop bound → report
+         `WAITING_APPROVAL — review pending at <dashboard>/reviews for
+         <idea-id>/<phase>` and STOP.
+     - Any phase `rejected` → re-dispatch that phase's agent (same
+       routing-table name) with the reviewer's comment passed VERBATIM as
+       `reviewer_feedback` in args (see step 4). The agent's re-run
+       replaces the rejected output.
+
+  3. **Determine next action** using this routing table:
 
      | Condition | Next agent |
      |-----------|-----------|
@@ -114,21 +154,23 @@ prompt: |
      If lifecycle = `completed` or `invalidated` or `failed` → terminate.
      If lifecycle = `parked` or `blocked` → surface to user and stop.
 
-  3. **Dispatch** the sub-agent in the SAME turn as the query:
+  4. **Dispatch** the sub-agent in the SAME turn as the query:
      ```
      sys_session_send(
        agent="D1_northstar",    # or any of the 17 sub-phase agent names
        title="d1-idea-6",       # short label: <phase-id>-<idea-id>
        args={
          "idea_uri": "<IDEA_URI>",
-         "work_dir": "./work/<idea-id>"
+         "work_dir": "./work/<idea-id>",
+         # Only when re-dispatching after a human rejection (step 2):
+         "reviewer_feedback": "<Query D comment, verbatim>"
        }
      )
      ```
 
-  4. End your turn. The inbox wakes you when the sub-agent finishes.
+  5. End your turn. The inbox wakes you when the sub-agent finishes.
 
-  5. **Collect results** via `sys_read_inbox`, then return to step 1.
+  6. **Collect results** via `sys_read_inbox`, then return to step 1.
 
   ## Termination
 
@@ -179,9 +221,12 @@ tools:
   ontology:
     type: mcp
     # Allow-list: orchestrator is read-only, drives the hardcoded routing
-    # table via SPARQL only. (Dynamic-routing variants additionally need
-    # list_pipeline_tool, next_phase_tool, collect_upstream_facts_tool.)
-    tools: [sparql_query]
+    # table via SPARQL only. await_approval_tool is a read-only long-poll
+    # on the HITL decision — approve/reject stay dashboard/REST-only so
+    # agents can never approve their own output. (Dynamic-routing variants
+    # additionally need list_pipeline_tool, next_phase_tool,
+    # collect_upstream_facts_tool.)
+    tools: [sparql_query, await_approval_tool]
     url: "${ONTOLOGY_API_URL:-http://localhost:8100}"
     description: "Ontology and SPARQL tools for lifecycle and phase-state queries."
 
