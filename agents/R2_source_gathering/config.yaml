@@ -28,7 +28,10 @@ prompt: |
   STEP 0 — Load context:
     Call: collect_upstream_facts_tool
       idea_id: "<idea-id>"    # derived from args.idea_uri, e.g. "idea-130"
-    Returns: dict keyed by phase_id, each value a dict of that phase's preserved fields.
+      consuming_phase_id: "r2"   # REQUIRED — filters to the fields this phase consumes (60-95% smaller)
+    Returns: dict keyed by phase_id, each value a dict of the preserved fields THIS phase consumes.
+    Need an upstream field outside that set? Fetch exactly that one with
+    get_phase_fact_tool(idea_id, phase_id, field) — NEVER re-call the collector unfiltered.
     Key R1 fields: research_questions (JSON list with methodology, acceptance_criteria,
     risk_level, estimated_effort).
 
@@ -164,7 +167,7 @@ os_env:
 tools:
   ontology:
     type: mcp
-    tools: [collect_upstream_facts_tool, record_phase_result_tool]
+    tools: [collect_upstream_facts_tool, get_phase_fact_tool, record_phase_result_tool]
     url: "${ONTOLOGY_API_URL:-http://localhost:8000}"
     headers:
       Authorization: "Bearer ${ONTOLOGY_API_KEY}"

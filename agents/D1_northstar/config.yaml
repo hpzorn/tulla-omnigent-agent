@@ -33,7 +33,10 @@ prompt: |
   STEP 0 — Load context:
     Call: collect_upstream_facts_tool
       idea_id: "<idea-id>"    # derived from args.idea_uri, e.g. "idea-130"
-    Returns: dict keyed by phase_id, each value a dict of that phase's preserved fields.
+      consuming_phase_id: "d1"   # REQUIRED — filters to the fields this phase consumes (60-95% smaller)
+    Returns: dict keyed by phase_id, each value a dict of the preserved fields THIS phase consumes.
+    Need an upstream field outside that set? Fetch exactly that one with
+    get_phase_fact_tool(idea_id, phase_id, field) — NEVER re-call the collector unfiltered.
     D1 is the first phase so this returns empty — expected. Use ontology tools (get_idea,
     query_ideas) to fetch the idea title and description from the idea pool.
 
@@ -145,7 +148,7 @@ os_env:
 tools:
   ontology:
     type: mcp
-    tools: [collect_upstream_facts_tool, record_phase_result_tool, get_idea, query_ideas]
+    tools: [collect_upstream_facts_tool, get_phase_fact_tool, record_phase_result_tool, get_idea, query_ideas]
     url: "${ONTOLOGY_API_URL:-http://localhost:8000}"
     headers:
       Authorization: "Bearer ${ONTOLOGY_API_KEY}"
