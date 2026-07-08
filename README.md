@@ -8,9 +8,9 @@ context, and end-to-end traceability from commit to quality attribute.
 Multiple agent instances, one semantic brain.
 
 > This fleet is the **canonical Tulla artifact**. The Python engine in
-> [`tulla`](../tulla) is the reference implementation; the shared semantic
+> [`tulla`]([../tulla](https://github.com/hpzorn/tulla)) is the reference implementation; the shared semantic
 > substrate (ontology server, pipeline ontologies, gate shapes) lives in
-> [`semantic-tool-use`](../semantic-tool-use).
+> [`semantic-tool-use`]([../semantic-tool-use)](https://github.com/hpzorn/semantic-tool-use).
 
 The pipeline runs up to 18 sub-phase agents: **D1–D5 (discovery) → R1–R6
 (research, optional) → P1–P6 (planning) → I1 (implementation loop)**.
